@@ -1,0 +1,596 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 1 Tier Network in 2 AZ.  No NAT.  All public IP
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: Keys
+      Parameters:
+      - KeyPairName
+    - Label:
+        default: TAGS
+      Parameters:
+      - Environment
+      - Platform
+    - Label:
+        default: Networking and Subnets
+      Parameters:
+      - VPCcidr
+    - Label:
+        default: ToolBoxes
+      Parameters:
+      - ToolBox00IP
+    ParameterLabels:
+      VPCID:
+        default: Which VPC should this be deployed to?
+Parameters:
+  KeyPairName:
+    Description: Public/private key pairs allow you to securely connect to your instance
+      after it launches
+    Type: AWS::EC2::KeyPair::KeyName
+  Environment:
+    Description: QA
+    Type: String
+    Default: TBD
+    MinLength: '1'
+    MaxLength: '25'
+  Platform:
+    Description: Widget
+    Type: String
+    Default: TBD
+    MinLength: '1'
+    MaxLength: '25'
+  DomainDNSName:
+    Description: Fully qualified domain name (FQDN) of the forest root domain e.g.
+      example.com
+    Type: String
+    Default: dev.tbd-asap.com
+    MinLength: '3'
+    MaxLength: '25'
+    AllowedPattern: "[a-zA-Z0-9]+\\..+"
+  VPCcidr:
+    Description: cidr Block for the VPC
+    Type: String
+    Default: 10.50.0.0/16
+    AllowedPattern: "[a-zA-Z0-9]+\\..+"
+  ToolBox00IP:
+    Description: Fixed private IP for one of the Toolboxes in the MGMT Service Layer
+    Type: String
+    Default: 10.50.40.210
+  DNS00IP:
+    Description: IP for DNS in AZ0
+    Type: String
+    Default: 8.8.8.8
+  DNS10IP:
+    Description: IP for DNS in AZ1
+    Type: String
+    Default: 8.8.4.4
+  NTP00IP:
+    Description: time0.google.com IP for NTP in AZ0
+    Type: String
+    Default: 216.239.35.0
+  NTP10IP:
+    Description: time1.google for NTP in AZ1
+    Type: String
+    Default: 216.239.35.4
+Resources:
+  DhcpOptions:
+    Type: AWS::EC2::DHCPOptions
+    Properties:
+      DomainName:
+        Ref: DomainDNSName
+      DomainNameServers:
+      - Ref: DNS00IP
+      - Ref: DNS10IP
+      NtpServers:
+      - Ref: NTP00IP
+      - Ref: NTP10IP
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - DHCP-Options
+      - Key: Domain
+        Value:
+          Ref: DomainDNSName
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock:
+        Ref: VPCcidr
+      EnableDnsHostnames: 'true'
+      Tags:
+      - Key: Name
+        Value:
+          Ref: AWS::StackName
+      - Key: Network
+        Value: Development
+  VPCDHCPOptionsAssociation:
+    Type: AWS::EC2::VPCDHCPOptionsAssociation
+    Properties:
+      VpcId:
+        Ref: VPC
+      DhcpOptionsId:
+        Ref: DhcpOptions
+  Tier1SubnetAZ0:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock:
+        Fn::Select:
+        - 10
+        - Fn::Cidr:
+          - Fn::GetAtt:
+            - VPC
+            - CidrBlock
+          - 256
+          - 8
+      AvailabilityZone:
+        Fn::Select:
+        - 0
+        - Fn::GetAZs: ''
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - WEB-AZ0
+      - Key: Network
+        Value: Public
+      - Key: Role
+        Value: Tier1 Subnet AZ0
+  Tier1SubnetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      CidrBlock:
+        Fn::Select:
+        - 11
+        - Fn::Cidr:
+          - Fn::GetAtt:
+            - VPC
+            - CidrBlock
+          - 256
+          - 8
+      AvailabilityZone:
+        Fn::Select:
+        - 1
+        - Fn::GetAZs: ''
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - WEB-AZ1
+      - Key: Network
+        Value: Public
+      - Key: Role
+        Value: Tier1 Subnet AZ1
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - GateWay
+      - Key: Network
+        Value: Development
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId:
+        Ref: VPC
+      InternetGatewayId:
+        Ref: InternetGateway
+  WEBRouteTableAZ0:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - WEB-AZ0
+      - Key: Network
+        Value: WEB AZ0
+  WEBRouteAZ0:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: WEBRouteTableAZ0
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+  WEBSubnetRouteTableAssociationAZ0:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: Tier1SubnetAZ0
+      RouteTableId:
+        Ref: WEBRouteTableAZ0
+  WEBRouteTableAZ1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Application
+        Value:
+          Ref: AWS::StackName
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - WEB-AZ1
+      - Key: Network
+        Value: WEB AZ1
+  WEBRouteAZ1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: WEBRouteTableAZ1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: InternetGateway
+  WEBSubnetRouteTableAssociationAZ1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: Tier1SubnetAZ1
+      RouteTableId:
+        Ref: WEBRouteTableAZ1
+  WEBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enables inbound Port 80 and 443 access from the public subnets
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - WEBSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        Description: Everywhere
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        Description: Everywhere
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '8080'
+        ToPort: '8080'
+        Description: Everywhere
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: icmp
+        FromPort: "-1"
+        ToPort: "-1"
+        Description: Everywhere
+        CidrIp: 0.0.0.0/0
+  CIFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable CIFS access from the App Level
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - CIFSSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '137'
+        ToPort: '139'
+        SourceSecurityGroupId:
+          Ref: APPSecurityGroup
+      - IpProtocol: tcp
+        FromPort: '445'
+        ToPort: '445'
+        SourceSecurityGroupId:
+          Ref: APPSecurityGroup
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable DB access from the App Level
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - DBSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '1433'
+        ToPort: '1433'
+        SourceSecurityGroupId:
+          Ref: PublicRDPSecurityGroup
+      - IpProtocol: tcp
+        FromPort: '1433'
+        ToPort: '1433'
+        SourceSecurityGroupId:
+          Ref: RDPToolBox
+      - IpProtocol: tcp
+        FromPort: '1433'
+        ToPort: '1433'
+        SourceSecurityGroupId:
+          Ref: APPSecurityGroup
+      - IpProtocol: tcp
+        FromPort: '1433'
+        ToPort: '1433'
+        CidrIp:
+          Fn::Join:
+          - "/"
+          - - Ref: ToolBox00IP
+            - '32'
+  APPSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable APP1 access from the App Level
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - APPSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '8000'
+        ToPort: '9280'
+        SourceSecurityGroupId:
+          Ref: WEBSecurityGroup
+  SMTPSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SMTP access from the App Level
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - SMTPSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '25'
+        ToPort: '25'
+        SourceSecurityGroupId:
+          Ref: APPSecurityGroup
+  PublicSSHSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access from the Internet
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - SSHSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        Description: Matt Bell
+        CidrIp: 70.181.147.217/32
+  PublicSQLServer:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable DB access from the Internet
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - PublicSQLServer
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '1433'
+        ToPort: '1433'
+        Description: EveryWhere
+        CidrIp: 0.0.0.0/0
+  PublicRDPSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable RDP access from the Internet
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - PublicRDPSecurityGroup
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '3389'
+        ToPort: '3389'
+        Description: Matt Bell
+        CidrIp: 70.181.147.217/32
+      - IpProtocol: icmp
+        FromPort: "-1"
+        ToPort: "-1"
+        Description: Matt Bell
+        CidrIp: 70.181.147.217/32
+  RDPToolBox:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable RDP access from the Internal Tool Box
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - RDPToolBox
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '3389'
+        ToPort: '3389'
+        SourceSecurityGroupId:
+          Ref: RDPLocal
+  ToolBoxMGMT:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable RDP access from the Internal Tool Box
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - ToolBoxMGMT
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '3389'
+        ToPort: '3389'
+        SourceSecurityGroupId:
+          Ref: RDPLocal
+  RDPLocal:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable RDP access from the Local Jump Box
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - ":"
+          - - Fn::Join:
+              - "-"
+              - - Ref: Environment
+                - Ref: Platform
+            - RDPLocal
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: '3389'
+        ToPort: '3389'
+        SourceSecurityGroupId:
+          Ref: PublicRDPSecurityGroup
+Outputs:
+  Tier1SubnetAZ0:
+    Value:
+      Ref: Tier1SubnetAZ0
+    Description: Tier1 AZ0
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-Tier1SubnetAZ0"
+  Tier1SubnetAZ1:
+    Value:
+      Ref: Tier1SubnetAZ1
+    Description: Tier1 AZ1
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-Tier1SubnetAZ1"
+  VPC:
+    Value:
+      Ref: VPC
+    Description: VPC ID
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-VPCID"
+  VPCcidr:
+    Value:
+      Ref: VPCcidr
+    Description: VPC CidrBlock
+    Export:
+      Name:
+        Fn::Sub: "${AWS::StackName}-VPCcidr"

@@ -1,0 +1,31 @@
+Resources:
+  MyInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: us-east-1a
+      ImageId: ami-0742b4e673072066f
+      InstanceType: t2.micro
+      IamInstanceProfile: ec2-cloudwatch-agent-role
+      KeyName: aaj
+      UserData:
+        Fn::Base64:  
+          !Sub |
+            #!/bin/bash
+            #sudo yum install httpd -y
+            #sudo yum install docker -y
+            #sudo service httpd start
+            #echo "<html><body><h1> Hi Rohit <h1></body></html>" > /var/www/html/index.html
+            sudo wget https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm
+            sudo rpm -U ./amazon-cloudwatch-agent.rpm
+            echo "hi rohit" > /home/ec2-user/abc.txt
+            sudo wget https://rohit-json.s3.amazonaws.com/def.json
+            cp def.json /home/ec2-user
+            cat def.json > /home/ec2-user/config.json
+            cp /home/ec2-user/config.json /opt/aws/amazon-cloudwatch-agent/bin
+            sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
+            
+     
+
+           
+    
+     
